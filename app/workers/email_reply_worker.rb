@@ -4,6 +4,7 @@ class EmailReplyWorker
 
   def perform(message_id)
     message = Message.find(message_id)
+    return if message.content_attributes&.dig('skip_delivery')
 
     return unless message.email_notifiable_message?
 

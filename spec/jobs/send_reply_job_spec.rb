@@ -11,6 +11,25 @@ RSpec.describe SendReplyJob do
       .on_queue('high')
   end
 
+  context 'when message has skip_delivery flag' do
+    let(:process_service) { double }
+
+    before do
+      allow(process_service).to receive(:perform)
+    end
+
+    it 'does not call any delivery service' do
+      twilio_channel = create(:channel_twilio_sms)
+      message = create(:message,
+                        conversation: create(:conversation, inbox: twilio_channel.inbox),
+                        content_attributes: { 'skip_delivery' => true })
+      allow(Twilio::SendOnTwilioService).to receive(:new).with(message: message).and_return(process_service)
+      described_class.perform_now(message.id)
+      expect(Twilio::SendOnTwilioService).not_to have_received(:new)
+      expect(process_service).not_to have_received(:perform)
+    end
+  end
+
   context 'when the job is triggered on a new message' do
     let(:process_service) { double }
 
