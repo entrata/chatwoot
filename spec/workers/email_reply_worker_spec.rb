@@ -14,7 +14,7 @@ RSpec.describe EmailReplyWorker, type: :worker do
     context 'when message has skip_delivery flag' do
       let(:skip_delivery_message) do
         create(:message, message_type: :outgoing, inbox: channel.inbox, account: account,
-                         additional_attributes: { 'skip_delivery' => true })
+                         content_attributes: { 'skip_delivery' => true })
       end
 
       before do

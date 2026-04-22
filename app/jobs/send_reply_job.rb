@@ -3,7 +3,7 @@ class SendReplyJob < ApplicationJob
 
   def perform(message_id)
     message = Message.find(message_id)
-    return if message.additional_attributes&.dig('skip_delivery')
+    return if message.content_attributes&.dig('skip_delivery')
 
     conversation = message.conversation
     channel_name = conversation.inbox.channel.class.to_s

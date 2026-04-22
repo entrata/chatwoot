@@ -22,7 +22,7 @@ RSpec.describe SendReplyJob do
       twilio_channel = create(:channel_twilio_sms)
       message = create(:message,
                         conversation: create(:conversation, inbox: twilio_channel.inbox),
-                        additional_attributes: { 'skip_delivery' => true })
+                        content_attributes: { 'skip_delivery' => true })
       allow(Twilio::SendOnTwilioService).to receive(:new).with(message: message).and_return(process_service)
       described_class.perform_now(message.id)
       expect(Twilio::SendOnTwilioService).not_to have_received(:new)
