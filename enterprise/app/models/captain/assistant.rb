@@ -36,7 +36,7 @@ class Captain::Assistant < ApplicationRecord
   has_many :copilot_threads, dependent: :destroy_async
   has_many :scenarios, class_name: 'Captain::Scenario', dependent: :destroy_async
 
-  store_accessor :config, :temperature, :feature_faq, :feature_memory, :product_name
+  store_accessor :config, :temperature, :feature_faq, :feature_memory, :feature_contact_attributes, :product_name
 
   validates :name, presence: true
   validates :description, presence: true
@@ -48,6 +48,19 @@ class Captain::Assistant < ApplicationRecord
 
   def available_name
     name
+  end
+
+  def available_agent_tools
+    tools = self.class.built_in_agent_tools.dup
+
+    custom_tools = account.captain_custom_tools.enabled.map(&:to_tool_metadata)
+    tools.concat(custom_tools)
+
+    tools
+  end
+
+  def available_tool_ids
+    available_agent_tools.pluck(:id)
   end
 
   def push_event_data
@@ -75,7 +88,7 @@ class Captain::Assistant < ApplicationRecord
   private
 
   def agent_name
-    name
+    name.parameterize(separator: '_')
   end
 
   def agent_tools
@@ -92,7 +105,8 @@ class Captain::Assistant < ApplicationRecord
       product_name: config['product_name'] || 'this product',
       scenarios: scenarios.enabled.map do |scenario|
         {
-          key: scenario.title.parameterize.underscore,
+          title: scenario.title,
+          key: scenario.handoff_key,
           description: scenario.description
         }
       end,

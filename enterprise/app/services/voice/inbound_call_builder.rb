@@ -1,82 +1,88 @@
 class Voice::InboundCallBuilder
-  pattr_initialize [:account!, :inbox!, :from_number!, :to_number, :call_sid!]
+  attr_reader :account, :inbox, :from_number, :call_sid
 
-  attr_reader :conversation
-
-  def perform
-    contact = find_or_create_contact!
-    contact_inbox = find_or_create_contact_inbox!(contact)
-    @conversation = find_or_create_conversation!(contact, contact_inbox)
-    create_call_message_if_needed!
-    self
+  def self.perform!(account:, inbox:, from_number:, call_sid:)
+    new(account: account, inbox: inbox, from_number: from_number, call_sid: call_sid).perform!
   end
 
-  def twiml_response
-    response = Twilio::TwiML::VoiceResponse.new
-    response.say(message: 'Please wait while we connect you to an agent')
-    response.to_s
+  def initialize(account:, inbox:, from_number:, call_sid:)
+    @account = account
+    @inbox = inbox
+    @from_number = from_number
+    @call_sid = call_sid
+  end
+
+  def perform!
+    existing = find_existing_call
+    return existing if existing
+
+    ActiveRecord::Base.transaction do
+      contact = ensure_contact!
+      contact_inbox = ensure_contact_inbox!(contact)
+      conversation = resolve_conversation!(contact, contact_inbox)
+      call = create_call!(contact, conversation)
+      message = Voice::CallMessageBuilder.new(call).perform!
+      call.update!(message_id: message.id)
+      call
+    end
+  rescue ActiveRecord::RecordNotUnique
+    # A concurrent Twilio retry won the create race; return what now exists.
+    find_existing_call || raise
   end
 
   private
 
-  def find_or_create_conversation!(contact, contact_inbox)
-    account.conversations.find_or_create_by!(
-      account_id: account.id,
-      inbox_id: inbox.id,
-      identifier: call_sid
-    ) do |conv|
-      conv.contact_id = contact.id
-      conv.contact_inbox_id = contact_inbox.id
-      conv.additional_attributes = {
-        'call_direction' => 'inbound',
-        'call_status' => 'ringing'
-      }
+  def find_existing_call
+    Call.where(account_id: account.id, inbox_id: inbox.id)
+        .find_by(provider: :twilio, provider_call_id: call_sid)
+  end
+
+  def ensure_contact!
+    account.contacts.find_or_create_by!(phone_number: from_number) do |record|
+      record.name = from_number if record.name.blank?
     end
   end
 
-  def create_call_message!
-    content_attrs = call_message_content_attributes
+  def ensure_contact_inbox!(contact)
+    ContactInbox.find_or_create_by!(
+      contact_id: contact.id,
+      inbox_id: inbox.id
+    ) do |record|
+      record.source_id = from_number
+    end
+  end
 
-    @conversation.messages.create!(
-      account_id: account.id,
+  def resolve_conversation!(contact, contact_inbox)
+    if inbox.lock_to_single_conversation
+      reusable = account.conversations
+                        .where(contact_id: contact.id, inbox_id: inbox.id)
+                        .where.not(status: :resolved)
+                        .order(last_activity_at: :desc)
+                        .first
+      return reusable if reusable
+    end
+
+    account.conversations.create!(
+      contact_inbox_id: contact_inbox.id,
       inbox_id: inbox.id,
-      message_type: :incoming,
-      sender: @conversation.contact,
-      content: 'Voice Call',
-      content_type: 'voice_call',
-      content_attributes: content_attrs
+      contact_id: contact.id,
+      status: :open
     )
   end
 
-  def create_call_message_if_needed!
-    return if @conversation.messages.voice_calls.exists?
-
-    create_call_message!
-  end
-
-  def call_message_content_attributes
-    {
-      data: {
-        call_sid: call_sid,
-        status: 'ringing',
-        conversation_id: @conversation.display_id,
-        call_direction: 'inbound',
-        from_number: from_number,
-        to_number: to_number,
-        meta: {
-          created_at: Time.current.to_i,
-          ringing_at: Time.current.to_i
-        }
-      }
-    }
-  end
-
-  def find_or_create_contact!
-    account.contacts.find_by(phone_number: from_number) ||
-      account.contacts.create!(phone_number: from_number, name: 'Unknown Caller')
-  end
-
-  def find_or_create_contact_inbox!(contact)
-    ContactInbox.where(contact_id: contact.id, inbox_id: inbox.id, source_id: from_number).first_or_create!
+  def create_call!(contact, conversation)
+    call = Call.create!(
+      account: account,
+      inbox: inbox,
+      conversation: conversation,
+      contact: contact,
+      provider: :twilio,
+      direction: :incoming,
+      status: 'ringing',
+      provider_call_id: call_sid,
+      meta: { 'initiated_at' => Time.zone.now.to_i }
+    )
+    call.update!(conference_sid: call.default_conference_sid)
+    call
   end
 end

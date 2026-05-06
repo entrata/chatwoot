@@ -23,6 +23,10 @@ const hasInstagramConfigured = computed(() => {
   return window.chatwootConfig?.instagramAppId;
 });
 
+const hasTiktokConfigured = computed(() => {
+  return window.chatwootConfig?.tiktokAppId;
+});
+
 const isActive = computed(() => {
   const { key } = props.channel;
   if (Object.keys(props.enabledFeatures).length === 0) {
@@ -44,6 +48,10 @@ const isActive = computed(() => {
     );
   }
 
+  if (key === 'tiktok') {
+    return props.enabledFeatures.channel_tiktok && hasTiktokConfigured.value;
+  }
+
   if (key === 'voice') {
     return props.enabledFeatures.channel_voice;
   }
@@ -57,6 +65,7 @@ const isActive = computed(() => {
     'telegram',
     'line',
     'instagram',
+    'tiktok',
     'voice',
   ].includes(key);
 });
@@ -66,6 +75,10 @@ const isComingSoon = computed(() => {
   // Show "Coming Soon" only if the channel is marked as coming soon
   // and the corresponding feature flag is not enabled yet.
   return ['voice'].includes(key) && !isActive.value;
+});
+
+const isBeta = computed(() => {
+  return ['tiktok', 'voice'].includes(props.channel.key);
 });
 
 const onItemClick = () => {
@@ -81,6 +94,7 @@ const onItemClick = () => {
     :description="channel.description"
     :icon="channel.icon"
     :is-coming-soon="isComingSoon"
+    :is-beta="isBeta"
     :disabled="!isActive"
     @click="onItemClick"
   />
