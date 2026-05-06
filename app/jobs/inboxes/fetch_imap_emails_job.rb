@@ -16,6 +16,7 @@ class Inboxes::FetchImapEmailsJob < MutexApplicationJob
   rescue EOFError, OpenSSL::SSL::SSLError, Net::IMAP::NoResponseError, Net::IMAP::BadResponseError, Net::IMAP::InvalidResponseError,
          Net::IMAP::ResponseParseError, Net::IMAP::ResponseReadError, Net::IMAP::ResponseTooLargeError => e
     Rails.logger.error "Error for email channel - #{channel.inbox.id} : #{e.message}"
+
   rescue LockAcquisitionError
     Rails.logger.error "Lock failed for #{channel.inbox.id}"
   rescue StandardError => e
@@ -25,11 +26,15 @@ class Inboxes::FetchImapEmailsJob < MutexApplicationJob
   private
 
   def should_fetch_email?(channel)
-    channel.imap_enabled? && !channel.reauthorization_required?
+    channel.inbound_fetch_enabled? && !channel.reauthorization_required?
   end
 
   def process_email_for_channel(channel, interval)
-    inbound_emails = if channel.microsoft?
+    inbound_emails = if channel.gmail_api_inbound?
+                       Gmail::FetchEmailService.new(channel: channel, interval: interval).perform
+                     elsif channel.microsoft_graph_inbound?
+                       MicrosoftGraph::FetchEmailService.new(channel: channel, interval: interval).perform
+                     elsif channel.microsoft?
                        Imap::MicrosoftFetchEmailService.new(channel: channel, interval: interval).perform
                      elsif channel.google?
                        Imap::GoogleFetchEmailService.new(channel: channel, interval: interval).perform

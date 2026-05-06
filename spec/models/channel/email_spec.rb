@@ -46,4 +46,61 @@ RSpec.describe Channel::Email do
       expect(channel.google?).to be(true)
     end
   end
+
+  describe '#rest_api_mode?' do
+    it 'returns false when provider_config is empty' do
+      expect(channel.rest_api_mode?).to be(false)
+    end
+
+    it 'returns false when api_mode is not rest' do
+      channel.provider_config = { 'access_token' => 'x' }
+      expect(channel.rest_api_mode?).to be(false)
+    end
+
+    it 'returns true when api_mode is rest' do
+      channel.provider_config = { 'access_token' => 'x', 'api_mode' => 'rest' }
+      expect(channel.rest_api_mode?).to be(true)
+    end
+  end
+
+  describe '#inbound_fetch_enabled?' do
+    it 'is true when IMAP is enabled' do
+      channel.imap_enabled = true
+      channel.provider_config = {}
+      expect(channel.inbound_fetch_enabled?).to be(true)
+    end
+
+    it 'is true when REST API mode is on even if IMAP is disabled' do
+      channel.imap_enabled = false
+      channel.provider_config = { 'api_mode' => 'rest', 'refresh_token' => 'x' }
+      expect(channel.inbound_fetch_enabled?).to be(true)
+    end
+
+    it 'is false when neither IMAP nor REST fetch is configured' do
+      channel.imap_enabled = false
+      channel.provider_config = {}
+      expect(channel.inbound_fetch_enabled?).to be(false)
+    end
+
+    it 'is true when Google OAuth has a refresh token but IMAP is disabled (no api_mode rest)' do
+      channel.imap_enabled = false
+      channel.provider = 'google'
+      channel.provider_config = {
+        'access_token' => 'x',
+        'refresh_token' => 'y',
+        'expires_on' => 1.hour.from_now.to_s
+      }
+      expect(channel.inbound_fetch_enabled?).to be(true)
+      expect(channel.gmail_api_inbound?).to be(true)
+    end
+  end
+
+  describe '#gmail_api_inbound? and #microsoft_graph_inbound?' do
+    it 'prefers Gmail API when REST is set even if IMAP is on' do
+      channel.provider = 'google'
+      channel.imap_enabled = true
+      channel.provider_config = { 'api_mode' => 'rest', 'refresh_token' => 'x' }
+      expect(channel.gmail_api_inbound?).to be(true)
+    end
+  end
 end

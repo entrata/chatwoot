@@ -5,8 +5,11 @@ class BaseRefreshOauthTokenService
   def access_token
     return provider_config[:access_token] unless access_token_expired?
 
-    refreshed_tokens = refresh_tokens
-    refreshed_tokens[:access_token]
+    refresh_tokens
+    # JSONB columns return string-keyed hashes, so wrap in indifferent access
+    # before reading symbol keys to avoid silently returning nil.
+    @provider_config = nil
+    provider_config[:access_token]
   end
 
   def access_token_expired?
@@ -33,11 +36,12 @@ class BaseRefreshOauthTokenService
   end
 
   def update_channel_provider_config(new_tokens)
-    channel.provider_config = {
-      access_token: new_tokens[:access_token],
-      refresh_token: new_tokens[:refresh_token],
-      expires_on: Time.at(new_tokens[:expires_at]).utc.to_s
-    }
+    current = channel.provider_config.is_a?(Hash) ? channel.provider_config.deep_stringify_keys : {}
+    channel.provider_config = current.merge(
+      'access_token' => new_tokens[:access_token],
+      'refresh_token' => new_tokens[:refresh_token],
+      'expires_on' => Time.at(new_tokens[:expires_at]).utc.to_s
+    )
     channel.save!
   end
 

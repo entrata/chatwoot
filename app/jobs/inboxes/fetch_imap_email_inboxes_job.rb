@@ -13,7 +13,7 @@ class Inboxes::FetchImapEmailInboxesJob < ApplicationJob
 
   def should_fetch_emails?(inbox)
     return false if inbox.account.suspended?
-    return false unless inbox.channel.imap_enabled
+    return false unless inbox.channel.inbound_fetch_enabled?
     return false if inbox.channel.reauthorization_required?
 
     return true unless ChatwootApp.chatwoot_cloud?

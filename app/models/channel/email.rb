@@ -72,7 +72,33 @@ class Channel::Email < ApplicationRecord
     imap_enabled && imap_address == 'imap.gmail.com'
   end
 
+  def rest_api_mode?
+    provider_config.is_a?(Hash) && provider_config['api_mode'] == 'rest'
+  end
+
+  # Inbound mail via Gmail API / Microsoft Graph (explicit `api_mode: rest` or OAuth with IMAP off).
+  def gmail_api_inbound?
+    google? && (rest_api_mode? || oauth_mail_api_inbound_without_imap?)
+  end
+
+  def microsoft_graph_inbound?
+    microsoft? && (rest_api_mode? || oauth_mail_api_inbound_without_imap?)
+  end
+
+  # Scheduled inbound fetch: IMAP (password or XOAUTH), REST flag, or OAuth with IMAP disabled
+  # (same mail APIs as REST—avoids requiring IMAP toggled on in the UI for Google/Microsoft OAuth).
+  def inbound_fetch_enabled?
+    imap_enabled? || rest_api_mode? || oauth_mail_api_inbound_without_imap?
+  end
+
   private
+
+  def oauth_mail_api_inbound_without_imap?
+    return false if imap_enabled?
+    return false unless provider_config.is_a?(Hash) && provider_config['refresh_token'].present?
+
+    google? || microsoft?
+  end
 
   def ensure_forward_to_email
     self.forward_to_email ||= "#{SecureRandom.hex}@#{account.inbound_email_domain}"

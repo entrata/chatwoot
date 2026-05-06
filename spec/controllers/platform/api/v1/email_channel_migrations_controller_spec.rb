@@ -143,6 +143,32 @@ RSpec.describe 'Platform Email Channel Migrations API', type: :request do
         expect(channel.imap_login).to eq('support@example.com')
       end
 
+      it 'sets api_mode to rest on google channel provider_config' do
+        post base_url, params: valid_migration_params, headers: headers, as: :json
+
+        channel = Channel::Email.find(response.parsed_body['results'].first['channel_id'])
+        expect(channel.provider_config['api_mode']).to eq('rest')
+        expect(channel.rest_api_mode?).to be(true)
+      end
+
+      it 'sets api_mode to rest on microsoft channel provider_config' do
+        params = {
+          migrations: [
+            {
+              email: 'support@outlook.com',
+              provider: 'microsoft',
+              provider_config: { access_token: 'test', refresh_token: 'test', expires_on: 1.hour.from_now.to_s }
+            }
+          ]
+        }
+
+        post base_url, params: params, headers: headers, as: :json
+
+        channel = Channel::Email.find(response.parsed_body['results'].first['channel_id'])
+        expect(channel.provider_config['api_mode']).to eq('rest')
+        expect(channel.rest_api_mode?).to be(true)
+      end
+
       it 'allows overriding imap settings' do
         params = {
           migrations: [
@@ -260,6 +286,119 @@ RSpec.describe 'Platform Email Channel Migrations API', type: :request do
         result = response.parsed_body['results'].first
         expect(result['status']).to eq('error')
         expect(result['message']).to include('Email has already been taken')
+      end
+    end
+  end
+
+  describe 'PATCH /platform/api/v1/accounts/:account_id/email_channel_migrations/:inbox_id' do
+    let!(:email_channel) { create(:channel_email, account: account) }
+    let(:email_inbox) { email_channel.inbox }
+    let(:patch_url) { "#{base_url}/#{email_inbox.id}" }
+    let(:valid_patch_params) do
+      {
+        migration: {
+          inbox_name: 'Renamed Inbox',
+          imap_port: 143,
+          provider_config: google_provider_config
+        }
+      }
+    end
+
+    context 'when unauthenticated' do
+      it 'returns unauthorized' do
+        with_modified_env EMAIL_CHANNEL_MIGRATION: 'true' do
+          patch patch_url, as: :json, params: valid_patch_params
+          expect(response).to have_http_status(:unauthorized)
+        end
+      end
+    end
+
+    context 'when inbox is not an email channel' do
+      let(:widget_inbox) { create(:inbox, account: account) }
+      let(:patch_widget_url) { "#{base_url}/#{widget_inbox.id}" }
+
+      it 'returns not found' do
+        with_modified_env EMAIL_CHANNEL_MIGRATION: 'true' do
+          patch patch_widget_url, headers: headers, as: :json, params: valid_patch_params
+          expect(response).to have_http_status(:not_found)
+        end
+      end
+    end
+
+    context 'when authenticated with permissible account' do
+      around do |example|
+        with_modified_env EMAIL_CHANNEL_MIGRATION: 'true' do
+          example.run
+        end
+      end
+
+      it 'updates channel and inbox' do
+        patch patch_url, headers: headers, as: :json, params: valid_patch_params
+
+        expect(response).to have_http_status(:ok)
+        result = response.parsed_body['results'].first
+        expect(result['status']).to eq('success')
+        expect(result['inbox_id']).to eq(email_inbox.id)
+
+        email_inbox.reload
+        email_channel.reload
+        expect(email_inbox.name).to eq('Renamed Inbox')
+        expect(email_channel.imap_port).to eq(143)
+        expect(email_channel.provider_config['refresh_token']).to eq('1//test-refresh-token')
+      end
+
+      it 'stamps api_mode rest on provider_config when rotating google credentials' do
+        email_channel.update!(provider: 'google')
+
+        patch patch_url, headers: headers, as: :json, params: valid_patch_params
+
+        expect(response).to have_http_status(:ok)
+        expect(email_channel.reload.provider_config['api_mode']).to eq('rest')
+      end
+
+      it 'returns not found when inbox_id belongs to a different account' do
+        other_inbox = create(:channel_email, account: create(:account)).inbox
+        wrong_url = "/platform/api/v1/accounts/#{account.id}/email_channel_migrations/#{other_inbox.id}"
+
+        patch wrong_url, headers: headers, as: :json, params: valid_patch_params
+
+        expect(response).to have_http_status(:not_found)
+      end
+
+      context 'with reauthorization state' do
+        before do
+          # Neutralise the disconnect mailer so we can drive the channel into a
+          # reauthorization-required state without exercising mailer templates.
+          allow_any_instance_of(Channel::Email).to receive(:send_channel_reauthorization_email)
+          email_channel.authorization_error!
+          email_channel.prompt_reauthorization!
+        end
+
+        it 'clears the reauthorization_required redis flag when provider_config is rotated' do
+          expect(email_channel.reauthorization_required?).to be true
+
+          patch patch_url, headers: headers, as: :json, params: valid_patch_params
+
+          expect(response).to have_http_status(:ok)
+          expect(email_channel.reauthorization_required?).to be false
+        end
+
+        it 'resets the authorization_error_count when provider_config is rotated' do
+          expect(email_channel.authorization_error_count).to be > 0
+
+          patch patch_url, headers: headers, as: :json, params: valid_patch_params
+
+          expect(email_channel.authorization_error_count).to eq 0
+        end
+
+        it 'does not clear the reauthorization_required flag when provider_config is absent' do
+          rename_only_params = { migration: { inbox_name: 'Renamed Only', imap_port: 143 } }
+
+          patch patch_url, headers: headers, as: :json, params: rename_only_params
+
+          expect(response).to have_http_status(:ok)
+          expect(email_channel.reauthorization_required?).to be true
+        end
       end
     end
   end

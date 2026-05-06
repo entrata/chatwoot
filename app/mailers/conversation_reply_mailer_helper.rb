@@ -33,6 +33,13 @@ module ConversationReplyMailerHelper
 
   def oauth_smtp_settings
     return unless @inbox.email? && @channel.imap_enabled
+
+    if @channel.rest_api_mode?
+      @options[:delivery_method] = @channel.google? ? :gmail_api : :microsoft_graph
+      @options[:delivery_method_options] = { channel: @channel }
+      return
+    end
+
     return unless oauth_provider_domain
 
     @options[:delivery_method] = :smtp
@@ -44,12 +51,21 @@ module ConversationReplyMailerHelper
     return 'smtp.office365.com' if @inbox.channel.microsoft?
   end
 
+  def oauth_access_token
+    return Google::RefreshOauthTokenService.new(channel: @channel).access_token if @inbox.channel.google?
+    return Microsoft::RefreshOauthTokenService.new(channel: @channel).access_token if @inbox.channel.microsoft?
+  end
+
   def base_smtp_settings(domain)
+    # Use the cached access_token. Refresh is handled by the OAuth token refresher
+    # on auth failure at the delivery call sites (see Email::SendOnEmailService),
+    # so this path stays a pure consumer of provider_config and
+    # avoids racing writes with the IMAP fetch job.
     {
       address: domain,
       port: 587,
       user_name: @channel.imap_login,
-      password: @channel.provider_config['access_token'],
+      password: oauth_access_token,
       domain: domain,
       tls: false,
       enable_starttls_auto: true,

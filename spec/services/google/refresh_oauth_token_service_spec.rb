@@ -52,6 +52,20 @@ RSpec.describe Google::RefreshOauthTokenService do
       end
     end
 
+    context 'when provider_config carries an api_mode marker' do
+      it 'preserves the api_mode marker after refresh' do
+        with_modified_env GOOGLE_OAUTH_CLIENT_ID: SecureRandom.uuid, GOOGLE_OAUTH_CLIENT_SECRET: SecureRandom.hex do
+          google_channel_with_expired_token.update!(
+            provider_config: google_channel_with_expired_token.provider_config.merge('api_mode' => 'rest')
+          )
+
+          described_class.new(channel: google_channel_with_expired_token).access_token
+
+          expect(google_channel_with_expired_token.reload.provider_config['api_mode']).to eq('rest')
+        end
+      end
+    end
+
     context 'when expiry time is missing' do
       it 'fetches new access token and refresh tokens' do
         with_modified_env GOOGLE_OAUTH_CLIENT_ID: SecureRandom.uuid, GOOGLE_OAUTH_CLIENT_SECRET: SecureRandom.hex do

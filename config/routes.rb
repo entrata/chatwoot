@@ -507,7 +507,7 @@ Rails.application.routes.draw do
               delete :destroy
             end
           end
-          resources :email_channel_migrations, only: [:create]
+          resources :email_channel_migrations, only: %i[create update], param: :inbox_id
         end
       end
     end
