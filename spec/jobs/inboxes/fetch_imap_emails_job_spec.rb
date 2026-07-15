@@ -69,6 +69,71 @@ RSpec.describe Inboxes::FetchImapEmailsJob do
       end
     end
 
+    context 'when the channel is google OAuth with IMAP disabled and no api_mode rest' do
+      let(:google_oauth_imap_off) do
+        create(:channel_email, account: account, provider: 'google', imap_enabled: false,
+                               provider_config: {
+                                 'access_token' => 'x',
+                                 'refresh_token' => 'y',
+                                 'expires_on' => 1.hour.from_now.to_s
+                               })
+      end
+
+      it 'calls Gmail::FetchEmailService' do
+        fetch_service = double
+        allow(Gmail::FetchEmailService).to receive(:new).with(channel: google_oauth_imap_off, interval: 1).and_return(fetch_service)
+        allow(fetch_service).to receive(:perform).and_return([])
+
+        expect(Imap::GoogleFetchEmailService).not_to receive(:new)
+
+        described_class.perform_now(google_oauth_imap_off)
+        expect(fetch_service).to have_received(:perform)
+      end
+    end
+
+    context 'when the channel is google with rest api_mode and IMAP disabled' do
+      let(:google_rest_imap_off) { create(:channel_email, :google_rest_email, imap_enabled: false, account: account) }
+
+      it 'still calls Gmail::FetchEmailService' do
+        fetch_service = double
+        allow(Gmail::FetchEmailService).to receive(:new).with(channel: google_rest_imap_off, interval: 1).and_return(fetch_service)
+        allow(fetch_service).to receive(:perform).and_return([])
+
+        described_class.perform_now(google_rest_imap_off)
+        expect(fetch_service).to have_received(:perform)
+      end
+    end
+
+    context 'when the channel is google with rest api_mode' do
+      let(:google_rest_channel) { create(:channel_email, :google_rest_email, account: account) }
+
+      it 'calls Gmail::FetchEmailService and skips IMAP path' do
+        fetch_service = double
+        allow(Gmail::FetchEmailService).to receive(:new).with(channel: google_rest_channel, interval: 1).and_return(fetch_service)
+        allow(fetch_service).to receive(:perform).and_return([])
+
+        expect(Imap::GoogleFetchEmailService).not_to receive(:new)
+
+        described_class.perform_now(google_rest_channel)
+        expect(fetch_service).to have_received(:perform)
+      end
+    end
+
+    context 'when the channel is microsoft with rest api_mode' do
+      let(:microsoft_rest_channel) { create(:channel_email, :microsoft_rest_email, account: account) }
+
+      it 'calls MicrosoftGraph::FetchEmailService and skips IMAP path' do
+        fetch_service = double
+        allow(MicrosoftGraph::FetchEmailService).to receive(:new).with(channel: microsoft_rest_channel, interval: 1).and_return(fetch_service)
+        allow(fetch_service).to receive(:perform).and_return([])
+
+        expect(Imap::MicrosoftFetchEmailService).not_to receive(:new)
+
+        described_class.perform_now(microsoft_rest_channel)
+        expect(fetch_service).to have_received(:perform)
+      end
+    end
+
     context 'when IMAP OAuth errors out' do
       it 'marks the connection as requiring authorization' do
         error_response = double

@@ -59,6 +59,23 @@ RSpec.describe Inboxes::FetchImapEmailInboxesJob do
       described_class.perform_now
     end
 
+    it 'enqueues fetch for Google REST mode when IMAP is disabled' do
+      google_rest_imap_off = create(:channel_email, :google_rest_email, imap_enabled: false, account: account)
+
+      expect(Inboxes::FetchImapEmailsJob).to receive(:perform_later).with(google_rest_imap_off)
+
+      described_class.perform_now
+    end
+
+    it 'enqueues fetch for Google OAuth when IMAP is disabled and refresh_token is present (no api_mode)' do
+      google_oauth_imap_off = create(:channel_email, account: account, provider: 'google', imap_enabled: false,
+                                                  provider_config: { 'refresh_token' => 'y', 'access_token' => 'x' })
+
+      expect(Inboxes::FetchImapEmailsJob).to receive(:perform_later).with(google_oauth_imap_off)
+
+      described_class.perform_now
+    end
+
     it 'skips channels requiring reauthorization' do
       expect(Inboxes::FetchImapEmailsJob).not_to receive(:perform_later).with(reauth_required_channel)
 

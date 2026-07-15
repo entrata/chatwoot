@@ -36,5 +36,39 @@ FactoryBot.define do
       imap_enable_ssl { true }
       imap_authentication { 'plain' }
     end
+
+    trait :google_rest_email do
+      provider { 'google' }
+      imap_enabled { true }
+      imap_address { 'imap.gmail.com' }
+      imap_port { 993 }
+      imap_login { 'email@example.com' }
+      imap_enable_ssl { true }
+      provider_config do
+        {
+          'access_token' => SecureRandom.hex,
+          'refresh_token' => SecureRandom.hex,
+          'expires_on' => (Time.zone.now + 3600).to_s,
+          'api_mode' => 'rest'
+        }
+      end
+    end
+
+    trait :microsoft_rest_email do
+      provider { 'microsoft' }
+      imap_enabled { true }
+      imap_address { 'outlook.office365.com' }
+      imap_port { 993 }
+      imap_login { 'email@example.com' }
+      imap_enable_ssl { true }
+      provider_config do
+        {
+          'access_token' => SecureRandom.hex,
+          'refresh_token' => SecureRandom.hex,
+          'expires_on' => (Time.zone.now + 3600).to_s,
+          'api_mode' => 'rest'
+        }
+      end
+    end
   end
 end
